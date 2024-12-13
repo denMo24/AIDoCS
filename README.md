@@ -33,10 +33,11 @@ The pipeline demonstrates strong performance in handling structured data and imp
 
 ## Repository Contents
 
-- **`data/`**: Contains sample synthetic dialogues and anonymized patient records (if applicable).  
-- **`models/`**: Pre-trained and fine-tuned models used for dialogue generation and feature extraction.  
-- **`scripts/`**: Python scripts for generating synthetic dialogues, RAG-based feature extraction, and evaluation.  
-- **`notebooks/`**: Jupyter Notebooks for exploratory data analysis and model performance evaluation.  
-- **`results/`**: Evaluation metrics and analysis of pipeline performance.  
+
+- **`notebooks/`**:
+- Jupyter Python and R Notebooks for PRAM-based data synthesis and clustering.
+- Jupyter Python Notebooks for dialogue generation and text extraction.
+- Jupyter Python Notebooks for pipeline evaluation.
+
 
 ---
