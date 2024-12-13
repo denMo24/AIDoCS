@@ -1,0 +1,598 @@
+```{r}
+library(sdcMicro)
+library(dplyr)
+
+
+# Function to create the appropriate transition matrix based on the number of unique values
+create_appropriate_transition_matrix <- function(column) {
+  if (length(unique(column)) > 5) {
+    return(make_transition_matrix_distributed(column))
+  } else {
+    return(make_transition_matrix_distributed_small(column))
+  }
+}
+
+
+make_transition_matrix_distributed_small <- function(column) {
+  # Ensure the column is treated as a factor
+  unique_vals <- sort(unique(column))
+  
+  # Number of unique values
+  n <- length(unique_vals)
+  
+  # Initialize the transition matrix with zeros
+  transition_matrix <- matrix(0, n, n)
+  
+  # Define the probabilities for neighbors
+  left_far_prob <- 0.10
+  left_near_prob <- 0.40
+  right_near_prob <- 0.40
+  right_far_prob <- 0.10
+  
+  # Fill the transition matrix
+  for (i in 1:n) {
+    if (i == 1) {
+      # First row, only right neighbors
+      transition_matrix[i, i+1] <- 0.50
+      if (n > 2) {
+        transition_matrix[i, i+2] <- 0.50
+      }
+    } else if (i == 2) {
+      # Second row, one left neighbor and right neighbors
+      transition_matrix[i, i-1] <- left_near_prob
+      transition_matrix[i, i+1] <- right_near_prob
+      if (n > 3) {
+        transition_matrix[i, i+2] <- 0.20
+      }
+    } else if (i == n - 1) {
+      # Second to last row, one right neighbor and left neighbors
+      transition_matrix[i, i-1] <- left_near_prob
+      transition_matrix[i, i+1] <- right_near_prob
+      transition_matrix[i, i-2] <- 0.20
+    } else if (i == n) {
+      # Last row, only left neighbors
+      transition_matrix[i, i-1] <- 0.50
+      if (n > 2) {
+        transition_matrix[i, i-2] <- 0.50
+      }
+    } else if (i == n - 2) {
+      # Third to last row
+      transition_matrix[i, i-2] <- 0.10
+      transition_matrix[i, i-1] <- 0.40
+      transition_matrix[i, i+1] <- 0.40
+      transition_matrix[i, i+2] <- 0.10
+    } else {
+      # Middle rows, both left and right neighbors
+      transition_matrix[i, i-1] <- left_near_prob
+      transition_matrix[i, i+1] <- right_near_prob
+      transition_matrix[i, i-2] <- left_far_prob
+      transition_matrix[i, i+2] <- right_far_prob
+    }
+    # Ensure diagonal is zero
+    transition_matrix[i, i] <- 0
+  }
+  
+  # Assign row and column names for clarity
+  rownames(transition_matrix) <- unique_vals
+  colnames(transition_matrix) <- unique_vals
+  
+  return(transition_matrix)
+}
+
+
+make_transition_matrix_distributed <- function(column) {
+  # Ensure the column is treated as a factor
+  unique_vals <- sort(unique(column))
+  
+  # Number of unique values
+  n <- length(unique_vals)
+  
+  # Initialize the transition matrix with zeros
+  transition_matrix <- matrix(0, n, n)
+  
+  # Fill the transition matrix
+  for (i in 1:n) {
+    if (i == 1) {
+      # First row
+      transition_matrix[i, i+1] <- 0.2
+      transition_matrix[i, i+2] <- 0.2
+      transition_matrix[i, i+3] <- 0.2
+      transition_matrix[i, i+4] <- 0.2
+      transition_matrix[i, i+5] <- 0.2
+    } else if (i == 2) {
+      # Second row
+      transition_matrix[i, i-1] <- 0.2
+      transition_matrix[i, i+1] <- 0.2
+      transition_matrix[i, i+2] <- 0.2
+      transition_matrix[i, i+3] <- 0.2
+      transition_matrix[i, i+4] <- 0.2
+    } else if (i == 3) {
+      # Third row
+      transition_matrix[i, i-2] <- 0.2
+      transition_matrix[i, i-1] <- 0.2
+      transition_matrix[i, i+1] <- 0.2
+      transition_matrix[i, i+2] <- 0.2
+      transition_matrix[i, i+3] <- 0.2
+    } else if (i == n - 2) {
+      # Third to last row
+      transition_matrix[i, i-3] <- 0.2
+      transition_matrix[i, i-2] <- 0.2
+      transition_matrix[i, i-1] <- 0.2
+      transition_matrix[i, i+1] <- 0.2
+      transition_matrix[i, i+2] <- 0.2
+    } else if (i == n - 1) {
+      # Second to last row
+      transition_matrix[i, i-4] <- 0.2
+      transition_matrix[i, i-3] <- 0.2
+      transition_matrix[i, i-2] <- 0.2
+      transition_matrix[i, i-1] <- 0.2
+      transition_matrix[i, i+1] <- 0.2
+    } else if (i == n) {
+      # Last row
+      transition_matrix[i, i-5] <- 0.2
+      transition_matrix[i, i-4] <- 0.2
+      transition_matrix[i, i-3] <- 0.2
+      transition_matrix[i, i-2] <- 0.2
+      transition_matrix[i, i-1] <- 0.2
+    } else {
+      # Middle rows
+      transition_matrix[i, i-3] <- 0.1
+      transition_matrix[i, i-2] <- 0.2
+      transition_matrix[i, i-1] <- 0.2
+      transition_matrix[i, i+1] <- 0.2
+      transition_matrix[i, i+2] <- 0.2
+      transition_matrix[i, i+3] <- 0.1
+    }
+    # Ensure diagonal is zero
+    transition_matrix[i, i] <- 0
+  }
+  
+  # Assign row and column names for clarity
+  rownames(transition_matrix) <- unique_vals
+  colnames(transition_matrix) <- unique_vals
+  
+  return(transition_matrix)
+}
+
+```
+
+
+```{r}
+
+
+# Load the CSV file into a data frame
+data <- read.csv("/Users/mosimacnew/Code/PRAM/Clusterings_for_PRAM/cleaned_ready_for_pram/df_cc-pram_chiefcomplaint_mapped_cleaned.csv")
+data <- data %>% select(-X)
+
+data$pain <- as.integer(data$pain)
+
+# Count the number of rows with NAs in any column
+sum(complete.cases(data) == FALSE)
+
+# Remove rows with NAs in any column
+data <- na.omit(data)
+
+data_original_cleaned <- data
+
+# Convert all relevant variables to factors
+data$temperature <- factor(data$temperature)
+data$heartrate <- factor(data$heartrate)
+data$resprate <- factor(data$resprate)
+data$o2sat <- factor(data$o2sat)
+data$sbp <- factor(data$sbp)
+data$dbp <- factor(data$dbp)
+data$pain <- factor(data$pain)
+data$acuity <- factor(data$acuity)
+data$chiefcomplaint <- factor(data$chiefcomplaint)
+
+# Create transition matrices for all PRAM variables using the new function
+matrix_temperature <- make_transition_matrix_distributed(data$temperature)
+matrix_heartrate <- make_transition_matrix_distributed(data$heartrate)
+matrix_resprate <- make_transition_matrix_distributed(data$resprate)
+matrix_o2sat <- make_transition_matrix_distributed(data$o2sat)
+matrix_sbp <- make_transition_matrix_distributed(data$sbp)
+matrix_dbp <- make_transition_matrix_distributed(data$dbp)
+matrix_pain <- make_transition_matrix_distributed(data$pain)
+matrix_acuity <- create_appropriate_transition_matrix(data$acuity)
+matrix_chiefcomplaint <- make_transition_matrix_distributed(data$chiefcomplaint)
+
+# Define key variables and other parameters
+keyVars <- c("temperature")
+
+# Define PRAM variables
+pramVars <- c("temperature", "heartrate", "resprate", "o2sat", "sbp", "dbp", "pain" )
+
+# Create initial sdcMicro object with the variables as factors
+initial_sdcObj <- createSdcObj(
+  dat = data, 
+  keyVars = keyVars, 
+  pramVars = pramVars,
+  excludeVars = c("subject_id", "stay_id", "cosine_cluster_chiefcomplaint", "cosine_distance_to_center_chiefcomplaint", "chiefcomplaint", "acuity")
+)
+
+# Apply PRAM using the sdcMicro object
+sdcObj_pram <- pram(
+  obj = initial_sdcObj,
+  variables = pramVars,
+  pd = list(matrix_temperature, matrix_heartrate, matrix_resprate, matrix_o2sat, 
+            matrix_sbp, matrix_dbp, matrix_pain)
+)
+
+# Assess global risk for the dataset after PRAM
+print(sdcObj_pram@risk$global)
+
+
+
+permuted_data <- extractManipData(sdcObj_pram)
+
+columns_to_update <- intersect(names(data), names(permuted_data))
+data[, columns_to_update] <- permuted_data[, columns_to_update]
+
+data_num <- data
+
+```
+
+```{r}
+pd_temp_df <- as.data.frame(matrix_temperature)
+
+# Print the transition matrix as a table
+print(pd_temp_df)
+```
+
+CC_PRAM
+```{r}
+
+# Convert relevant columns to factors
+data$chiefcomplaint <- factor(data$chiefcomplaint)
+data$cosine_cluster_chiefcomplaint <- factor(data$cosine_cluster_chiefcomplaint)
+data$cosine_distance_to_center_chiefcomplaint <- factor(data$cosine_distance_to_center_chiefcomplaint)
+
+# Create copies of the data (with allrady pramed vital signs)
+data_index <- data
+data_cc <- data
+
+
+```
+
+
+
+
+```{r}
+# Function to create transition matrix with diagonal zero and other values equally distributed
+make_transition_matrix <- function(unique_vals) {
+  n <- length(unique_vals)
+  matrix <- matrix(1 / (n - 1), n, n)
+  diag(matrix) <- 0
+  rownames(matrix) <- unique_vals
+  colnames(matrix) <- unique_vals
+  return(matrix)
+}
+```
+
+
+```{r}
+# Initialize an empty dataframe to store PRAMmed results
+prammed_results <- data.frame()
+```
+
+
+```{r}
+# Process each cluster
+unique_clusters <- unique(data$cosine_cluster_chiefcomplaint)
+length(unique_clusters)
+```
+
+
+
+```{r}
+for (cluster in unique_clusters) {
+  # Extract the dataframe for the current cluster
+  cluster_data <- data[data$cosine_cluster_chiefcomplaint == cluster, ]
+
+  # Convert factor to numeric for transition matrix creation
+  cluster_data$cosine_distance_to_center_chiefcomplaint <- as.numeric(as.character(cluster_data$cosine_distance_to_center_chiefcomplaint))
+
+  # Get unique values of cosine_distance_to_center_chiefcomplaint for this cluster
+  unique_vals <- sort(unique(cluster_data$cosine_distance_to_center_chiefcomplaint))
+
+  # Create transition matrix
+  transition_matrix <- make_transition_matrix(unique_vals)
+
+  # Convert back to factor for sdcMicro object creation
+  cluster_data$cosine_distance_to_center_chiefcomplaint <- factor(cluster_data$cosine_distance_to_center_chiefcomplaint, levels = unique_vals)
+
+  # Create sdcMicro object for the current cluster
+  sdcObj <- createSdcObj(
+    dat = cluster_data, 
+    keyVars = "cosine_distance_to_center_chiefcomplaint", 
+    pramVars = "cosine_distance_to_center_chiefcomplaint"
+  )
+
+  # Apply PRAM
+  sdcObj_pram <- pram(
+    obj = sdcObj,
+    variables = "cosine_distance_to_center_chiefcomplaint",
+    pd = list(transition_matrix)
+  )
+
+  # Extract the prammed column
+  prammed_column <- get.sdcMicroObj(sdcObj_pram, "manipKeyVars")[, "cosine_distance_to_center_chiefcomplaint"]
+
+  # Update the cluster_data with PRAMmed results
+  cluster_data$cosine_distance_to_center_chiefcomplaint <- prammed_column
+
+  # Append to prammed_results dataframe
+  prammed_results <- rbind(prammed_results, cluster_data)
+}
+```
+
+```{r}
+
+mapping_table <- data_index %>%
+  select(cosine_cluster_chiefcomplaint, cosine_distance_to_center_chiefcomplaint, chiefcomplaint) %>%
+  distinct()
+
+map_chiefcomplaint <- function(prammed_data, mapping_table) {
+  # Initialize a list to store rows with issues
+  problematic_rows <- list()
+  
+  # Iterate through each row in prammed_data
+  for (i in 1:nrow(prammed_data)) {
+    cluster <- prammed_data$cosine_cluster_chiefcomplaint[i]
+    distance <- prammed_data$cosine_distance_to_center_chiefcomplaint[i]
+    
+    # Find the matching rows in the mapping_table
+    matching_rows <- mapping_table[
+      mapping_table$cosine_cluster_chiefcomplaint == cluster &
+      mapping_table$cosine_distance_to_center_chiefcomplaint == distance, 
+    ]
+    
+    # Retrieve the corresponding chiefcomplaint value
+    if (nrow(matching_rows) >= 1) {
+      prammed_data$chiefcomplaint[i] <- matching_rows$chiefcomplaint[1]
+    } else {
+      warning(paste("No match found for row:", i))
+      problematic_rows <- append(problematic_rows, list(prammed_data[i, ]))
+    }
+  }
+  
+  # Print out problematic rows for debugging
+  if (length(problematic_rows) > 0) {
+    print(do.call(rbind, problematic_rows))
+  }
+  
+  return(prammed_data)
+}
+
+# Update the chiefcomplaint column in prammed_results
+prammed_results <- map_chiefcomplaint(prammed_results, mapping_table)
+
+# Result
+data_cc_mapped <- prammed_results
+```
+
+
+
+```{r}
+data_cc_mapped_sorted <- data_cc_mapped %>%
+  arrange(cosine_cluster_chiefcomplaint)
+data_cc_mapped_sorted
+```
+
+
+
+```{r}
+data_original_cleaned
+data_original_cleaned_sorted <- data_original_cleaned %>%
+  arrange(cosine_cluster_chiefcomplaint)
+data_original_cleaned_sorted
+```
+
+
+
+```{r}
+# Merge data_index and data_cc_mapped on subject_id and stay_id
+merged_data <- merge(
+  data_index %>% select(subject_id, stay_id, chiefcomplaint),
+  data_cc_mapped %>% select(subject_id, stay_id, chiefcomplaint),
+  by = c("subject_id", "stay_id"),
+  suffixes = c("_original", "_mapped")
+)
+
+# Check for unchanged chiefcomplaint values
+unchanged <- merged_data$chiefcomplaint_original == merged_data$chiefcomplaint_mapped
+merged_data$unchanged <- unchanged
+
+
+
+# Count the number of unchanged chiefcomplaint values
+num_unchanged <- sum(unchanged, na.rm = TRUE)
+num_total <- nrow(merged_data)
+num_changed <- num_total - num_unchanged
+
+# Calculate the percentage of unchanged and changed values
+percent_unchanged <- (num_unchanged / num_total) * 100
+percent_changed <- (num_changed / num_total) * 100
+
+# Print the results
+cat("Number of unchanged chiefcomplaint values:", num_unchanged, "\n")
+cat("Number of changed chiefcomplaint values:", num_changed, "\n")
+cat("Percentage of unchanged chiefcomplaint values:", percent_unchanged, "%\n")
+cat("Percentage of changed chiefcomplaint values:", percent_changed, "%\n")
+
+
+
+```
+
+
+```{r}
+library(dplyr)
+
+compare_columns_percentage <- function(original_data, mapped_data, id_cols) {
+  # Merge data based on identifiers
+  merged_data <- original_data %>%
+    inner_join(mapped_data, by = id_cols, suffix = c(".original", ".mapped"))
+  
+  # Initialize a list to store percentage changes
+  percentage_changes <- list()
+  
+  # Iterate over each column except the identifier columns
+  for (col in setdiff(colnames(original_data), id_cols)) {
+    original_col <- merged_data[[paste0(col, ".original")]]
+    mapped_col <- merged_data[[paste0(col, ".mapped")]]
+    
+    # Compare the columns and calculate the percentage of changes
+    changes <- sum(original_col != mapped_col, na.rm = TRUE)
+    total <- sum(!is.na(original_col) & !is.na(mapped_col))
+    percentage_change <- (changes / total) * 100
+    
+    # Store the result
+    percentage_changes[[col]] <- percentage_change
+  }
+  
+  return(percentage_changes)
+}
+
+# Define the identifier columns
+id_cols <- c("subject_id", "stay_id")
+
+# Compare the columns and calculate percentage changes
+percentage_changes <- compare_columns_percentage(data_original_cleaned, data_cc_mapped, id_cols)
+
+# Print the percentage changes
+for (col in names(percentage_changes)) {
+  cat("Percentage of changes in column", col, ":", percentage_changes[[col]], "%\n")
+}
+
+
+```
+
+```{r}
+# Sort data_original_cleaned by subject_id
+data_original_cleaned_sorted <- data_original_cleaned %>%
+  arrange(subject_id)
+
+# Print the first few rows of the sorted data to verify
+head(data_original_cleaned_sorted)
+```
+
+
+```{r}
+# Sort data_original_cleaned by subject_id
+data_cc_mapped_sorted <- data_cc_mapped %>%
+  arrange(subject_id)
+
+# Print the first few rows of the sorted data to verify
+head(data_cc_mapped_sorted)
+```
+```{r}
+# Save the data_cc_mapped dataframe as a CSV file
+write.csv(data_cc_mapped, "data_cc_mapped_chiefcomplaint.csv", row.names = FALSE)
+
+# Confirm the file has been saved
+print("data_cc_mapped_chiefcomplaint.csv has been saved successfully.")
+
+```
+
+```{r}
+# Check for duplicate combinations of subject_id and stay_id
+duplicates <- data_cc_mapped %>%
+  select(subject_id, stay_id) %>%
+  duplicated()
+
+# If there are duplicates, print a message and the rows with duplicates
+if (any(duplicates)) {
+  print("There are duplicate combinations of subject_id and stay_id.")
+  duplicate_rows <- data_cc_mapped[duplicates, ]
+  print(duplicate_rows)
+} else {
+  print("All combinations of subject_id and stay_id are unique.")
+}
+```
+
+```{r}
+# Check for duplicate combinations of subject_id and stay_id
+duplicates <- data_original_cleaned %>%
+  select(subject_id, stay_id) %>%
+  duplicated()
+
+# If there are duplicates, print a message and the rows with duplicates
+if (any(duplicates)) {
+  print("There are duplicate combinations of subject_id and stay_id.")
+  duplicate_rows <- data_original_cleaned[duplicates, ]
+  print(duplicate_rows)
+} else {
+  print("All combinations of subject_id and stay_id are unique.")
+}
+```
+
+
+
+```{r}
+library(dplyr)
+
+# Group by chiefcomplaint and count distinct clusters for each title
+chiefcomplaint_cluster_check <- data_cc_mapped %>%
+  group_by(chiefcomplaint) %>%
+  summarise(cluster_count = n_distinct(cosine_cluster_chiefcomplaint), .groups = 'drop')
+
+# Filter chiefcomplaint that appear in more than one cluster
+chiefcomplaint_in_multiple_clusters <- chiefcomplaint_cluster_check %>%
+  filter(cluster_count > 1)
+
+# Print the chiefcomplaint that appear in more than one cluster
+if (nrow(chiefcomplaint_in_multiple_clusters) > 0) {
+  cat("The following icd_titles appear in more than one cluster:\n")
+  print(chiefcomplaint_in_multiple_clusters)
+} else {
+  cat("All chiefcomplaint are unique to their clusters.\n")
+}
+
+
+
+
+# Assuming data_cc_mapped is your final mapped data
+
+# Group by chiefcomplaint and count distinct clusters for each title
+chiefcomplaint_cluster_check <- data_cc_mapped %>%
+  group_by(chiefcomplaint) %>%
+  summarise(cluster_count = n_distinct(cosine_cluster_chiefcomplaint), .groups = 'drop')
+
+# Filter chiefcomplaint that appear in more than one cluster
+chiefcomplaint_in_multiple_clusters <- chiefcomplaint_cluster_check %>%
+  filter(cluster_count > 1)
+
+# Print the chiefcomplaint that appear in more than one cluster
+if (nrow(chiefcomplaint_in_multiple_clusters) > 0) {
+  cat("The following icd_titles appear in more than one cluster:\n")
+  print(chiefcomplaint_in_multiple_clusters)
+} else {
+  cat("All chiefcomplaint are unique to their clusters.\n")
+}
+```
+
+
+
+```{r}
+library(dplyr)
+
+# Count occurrences of each distinct icd_title per cluster
+chiefcomplaint_counts <- data_cc_mapped %>%
+  group_by(cosine_cluster_chiefcomplaint, chiefcomplaint) %>%
+  summarise(count = n(), .groups = 'drop')
+
+# Print the counts
+print(chiefcomplaint_counts)
+```
+
+```{r}
+library(dplyr)
+
+# Count occurrences of each distinct icd_title per cluster
+chiefcomplaint_counts <- data_original_cleaned %>%
+  group_by(cosine_cluster_chiefcomplaint, chiefcomplaint) %>%
+  summarise(count = n(), .groups = 'drop')
+
+# Print the counts
+print(chiefcomplaint_counts)
+```

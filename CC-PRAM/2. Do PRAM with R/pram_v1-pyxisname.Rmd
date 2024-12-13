@@ -1,0 +1,428 @@
+```{r}
+# Load necessary libraries
+library(sdcMicro)
+library(dplyr)
+
+# Load the ED-Diagnosis data from the specified CSV file
+data <- read.csv("/Users/mosimacnew/Desktop/df_ready_for_prammming/df_cc-pram_pyxisname_mapped_cleaned.csv")
+
+
+# Display the first few rows of the data to verify loading
+data
+
+```
+
+Preprocessing 
+```{r}
+# Identify all rows that are part of duplicate combinations of subject_id and stay_id
+duplicate_indices <- data %>%
+  select(subject_id, stay_id) %>%
+  duplicated() | data %>%
+  select(subject_id, stay_id) %>%
+  duplicated(fromLast = TRUE)
+
+# Filter the data to show all rows with duplicate combinations of subject_id and stay_id
+duplicate_rows <- data[duplicate_indices, ]
+
+
+# Print the rows with duplicate combinations
+print("Rows with duplicate combinations of subject_id and stay_id:")
+print(duplicate_rows)
+```
+Duplicates of combination of subject_id and stay_id, so those combination cannot be used as unique identifiers.
+This means for last mapping of names we need X-Column (X are rows index-number of dataframes which are exported from the clusting of embeddings) as identifiers.
+
+```{r}
+# Check for duplicates in the X column, should be unique since but check for to be sure, since needed for mapping.
+duplicates_X <- data %>%
+  select(X) %>%
+  duplicated()
+
+# If there are duplicates, print a message and the rows with duplicates
+if (any(duplicates_X)) {
+  print("There are duplicate values in the X column.")
+  duplicate_X_rows <- data[duplicates_X, ]
+  print(duplicate_X_rows)
+} else {
+  print("All values in the X column are unique.")
+}
+```
+
+
+
+```{r}
+
+# Check for NA values in the entire data frame
+na_check <- is.na(data)
+
+# Identify which rows have any NA values
+rows_with_na <- which(rowSums(na_check) > 0)
+
+# Print the rows with NA values
+print(rows_with_na)
+
+# Optionally, you can view the rows with NA values for better understanding
+rows_with_na_data <- data[rows_with_na, ]
+print(rows_with_na_data)
+```
+
+```{r}
+print(is.null(data))
+```
+
+```{r}
+# Remove rows with NA values in any column
+#data <- na.omit(data)
+
+
+```
+
+
+```{r}
+# Save the cleaned original data
+data_original_cleaned <- data
+```
+
+CC-PRAM
+```{r}
+# Convert relevant columns to factors
+data$name <- factor(data$name)
+data$cosine_cluster_name <- factor(data$cosine_cluster_name)
+data$cosine_distance_to_center_name <- factor(data$cosine_distance_to_center_name)
+```
+
+
+```{r}
+# Create copies of the data
+data_index <- data
+data_cc <- data
+```
+
+
+```{r}
+# Function to create transition matrix with diagonal zero and other values equally distributed
+make_transition_matrix <- function(unique_vals) {
+  n <- length(unique_vals)
+  matrix <- matrix(1 / (n - 1), n, n)
+  diag(matrix) <- 0
+  rownames(matrix) <- unique_vals
+  colnames(matrix) <- unique_vals
+  return(matrix)
+}
+```
+
+
+```{r}
+# Initialize an empty dataframe to store PRAMmed results
+prammed_results <- data.frame()
+```
+
+Make a list cluster-numbers/classes 
+```{r}
+# Process each cluster
+unique_clusters <- unique(data$cosine_cluster_name)
+length(unique_clusters)
+```
+
+
+
+
+```{r}
+
+# Initialize a list to store transition matrices, used for manual checking if needed.
+transition_matrices <- list()
+
+
+for (cluster in unique_clusters) {
+  # Extract the dataframe for the current cluster
+  cluster_data <- data[data$cosine_cluster_name == cluster, ]
+
+  # Convert factor to numeric for transition matrix creation
+  cluster_data$cosine_distance_to_center_name <- as.numeric(as.character(cluster_data$cosine_distance_to_center_name))
+
+  # Get unique values of cosine_distance_to_center_name for this cluster
+  unique_vals <- sort(unique(cluster_data$cosine_distance_to_center_name))
+
+  # Create transition matrix
+  transition_matrix <- make_transition_matrix(unique_vals)
+  
+    # Save the transition matrix to the list, for manual inspection, if needed.
+  transition_matrices[[paste0("cluster_", cluster)]] <- transition_matrix
+
+  # Convert back to factor for sdcMicro object creation
+  cluster_data$cosine_distance_to_center_name <- factor(cluster_data$cosine_distance_to_center_name, levels = unique_vals)
+
+  # Create sdcMicro object for the current cluster
+  sdcObj <- createSdcObj(
+    dat = cluster_data, 
+    keyVars = "cosine_distance_to_center_name", 
+    pramVars = "cosine_distance_to_center_name"
+  )
+
+  # Apply PRAM
+  sdcObj_pram <- pram(
+    obj = sdcObj,
+    variables = "cosine_distance_to_center_name",
+    pd = list(transition_matrix)
+  )
+
+  # Extract the prammed column
+  prammed_column <- get.sdcMicroObj(sdcObj_pram, "manipKeyVars")[, "cosine_distance_to_center_name"]
+
+  # Update the cluster_data with PRAMmed results
+  cluster_data$cosine_distance_to_center_name <- prammed_column
+
+  # Append to prammed_results dataframe
+  prammed_results <- rbind(prammed_results, cluster_data)
+}
+
+```
+
+```{r}
+prammed_results
+data_index
+```
+```{r}
+#length(transition_matrices)
+```
+
+
+
+```{r}
+# Function to display a specific transition matrix by index
+display_transition_matrix <- function(transition_matrices, index) {
+  if (index > 0 && index <= length(transition_matrices)) {
+    matrix_name <- names(transition_matrices)[index]
+    cat("Transition Matrix for", matrix_name, ":\n")
+    print(transition_matrices[[index]])
+  } else {
+    cat("Index out of bounds. Please provide a valid index.\n")
+  }
+}
+
+# Example usage: Display the first transition matrix
+display_transition_matrix(transition_matrices, 1)
+```
+
+
+MAPPING
+```{r}
+# Create a mapping table
+mapping_table <- data_index %>%
+  select(X, cosine_cluster_name, cosine_distance_to_center_name, name) %>%
+  distinct()
+```
+
+
+
+```{r}
+mapping_table
+```
+
+```{r}
+map_name <- function(prammed_data, mapping_table) {
+  # Iterate through each row in prammed_data
+  for (i in 1:nrow(prammed_data)) {
+    cluster <- prammed_data$cosine_cluster_name[i]
+    distance <- prammed_data$cosine_distance_to_center_name[i]
+    
+    # Find the matching row in the mapping_table
+    matching_row <- mapping_table %>%
+      filter(cosine_cluster_name == cluster & cosine_distance_to_center_name == distance) %>%
+      slice(1)
+    
+    # Retrieve the corresponding name value
+    if (nrow(matching_row) == 1) {
+      prammed_data$name[i] <- matching_row$name
+    } else {
+      warning(paste("No match found for row:", i))
+    }
+  }
+  
+  return(prammed_data)
+}
+
+# Update the name column in prammed_results
+prammed_results <- map_name(prammed_results, mapping_table)
+
+# Ensure X remains unique
+prammed_results <- prammed_results %>%
+  distinct(X, .keep_all = TRUE)
+
+# Result
+data_cc_mapped <- prammed_results
+
+data_cc_mapped
+```
+
+```{r}
+data_cc_mapped
+```
+
+
+```{r}
+# Save the data_cc_mapped dataframe as a CSV file
+write.csv(data_cc_mapped, "data_cc_mapped_pyxisname.csv", row.names = FALSE)
+
+# Confirm the file has been saved
+print("data_cc_mapped_pyxis_name.csv has been saved successfully.")
+```
+
+
+
+
+
+
+
+
+
+CHECKING THE RESULTS
+```{r}
+# Sort the final mapped data
+data_cc_mapped_sorted <- data_cc_mapped %>%
+  arrange(X)
+
+# Display the sorted data
+print(data_cc_mapped_sorted)
+```
+
+
+
+```{r}
+# Sort the initial mapped data
+data_index_sorted <- data_index %>%
+  arrange(X)
+
+# Display the sorted data
+print(data_index_sorted)
+```
+
+
+```{r}
+# Sort the final mapped data
+data_cc_mapped_sorted <- data_cc_mapped %>%
+  arrange(name)
+
+# Display the sorted data
+print(data_cc_mapped_sorted)
+```
+
+
+```{r}
+# Sort the final mapped data
+data_index_sorted <- data_index %>%
+  arrange(name)
+
+# Display the sorted data
+print(data_index_sorted)
+```
+
+```{r}
+library(dplyr)
+
+compare_columns_percentage <- function(original_data, prammed_data, id_cols) {
+  # Merge data based on identifiers
+  merged_data <- original_data %>%
+    inner_join(prammed_data, by = id_cols, suffix = c(".original", ".prammed"))
+  
+  # Initialize a list to store percentage changes
+  percentage_changes <- list()
+  
+  # Iterate over each column except the identifier columns
+  for (col in setdiff(colnames(original_data), id_cols)) {
+    original_col <- merged_data[[paste0(col, ".original")]]
+    prammed_col <- merged_data[[paste0(col, ".prammed")]]
+    
+    # Compare the columns and calculate the percentage of changes
+    changes <- sum(original_col != prammed_col, na.rm = TRUE)
+    total <- sum(!is.na(original_col) & !is.na(prammed_col))
+    percentage_change <- (changes / total) * 100
+    
+    # Store the result
+    percentage_changes[[col]] <- percentage_change
+  }
+  
+  return(percentage_changes)
+}
+
+# Define the identifier columns
+id_cols <- c("X", "subject_id", "stay_id")
+
+# Compare the columns and calculate percentage changes
+percentage_changes <- compare_columns_percentage(data_original_cleaned, data_cc_mapped, id_cols)
+
+# Print the percentage changes
+for (col in names(percentage_changes)) {
+  cat("Percentage of changes in column", col, ":", percentage_changes[[col]], "%\n")
+}
+
+
+```
+
+```{r}
+library(dplyr)
+
+# Count occurrences of each distinct name per cluster
+name_counts <- data_cc_mapped %>%
+  group_by(cosine_cluster_name, name) %>%
+  summarise(count = n(), .groups = 'drop')
+
+# Print the counts
+print(name_counts)
+```
+
+```{r}
+library(dplyr)
+
+# Count occurrences of each distinct name per cluster
+name_counts <- data_index %>%
+  group_by(cosine_cluster_name, name) %>%
+  summarise(count = n(), .groups = 'drop')
+
+# Print the counts
+print(name_counts)
+```
+
+
+```{r}
+library(dplyr)
+
+# Group by name and count distinct clusters for each title
+name_cluster_check <- data_cc_mapped %>%
+  group_by(name) %>%
+  summarise(cluster_count = n_distinct(cosine_cluster_name), .groups = 'drop')
+
+# Filter titles that appear in more than one cluster
+names_in_multiple_clusters <- name_cluster_check %>%
+  filter(cluster_count > 1)
+
+# Print the titles that appear in more than one cluster
+if (nrow(names_in_multiple_clusters) > 0) {
+  cat("The following names appear in more than one cluster:\n")
+  print(names_in_multiple_clusters)
+} else {
+  cat("All names are unique to their clusters.\n")
+}
+
+
+
+
+# Assuming data_cc_mapped is your final mapped data
+
+# Group by name and count distinct clusters for each title
+name_cluster_check <- data_cc_mapped %>%
+  group_by(name) %>%
+  summarise(cluster_count = n_distinct(cosine_cluster_name), .groups = 'drop')
+
+# Filter titles that appear in more than one cluster
+names_in_multiple_clusters <- name_cluster_check %>%
+  filter(cluster_count > 1)
+
+# Print the titles that appear in more than one cluster
+if (nrow(names_in_multiple_clusters) > 0) {
+  cat("The following names appear in more than one cluster:\n")
+  print(names_in_multiple_clusters)
+} else {
+  cat("All names are unique to their clusters.\n")
+}
+```
