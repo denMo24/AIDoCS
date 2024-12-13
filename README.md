@@ -34,7 +34,7 @@ The pipeline demonstrates strong performance in handling structured data and imp
 ## Repository Contents
 
 
-- **`notebooks/`**:
+**`notebooks/`**:
 - Jupyter Python and R Notebooks for PRAM-based data synthesis and clustering.
 - Jupyter Python Notebooks for dialogue generation and text extraction.
 - Jupyter Python Notebooks for pipeline evaluation.
